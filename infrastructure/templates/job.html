@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+{% block title %}G-LoSA &mdash; job {{ job_id[:8] }}{% endblock %}
+{% block content %}
+
+{% set running = job.status in ('queued', 'running') %}
+{% set p = job.get('progress') or {} %}
+
+<div class="card">
+  <h2>
+    <span class="mono">{{ job.s1 }}</span> &larr; <span class="mono">{{ job.s2 }}</span>
+    <span class="pill {{ job.status }}" id="status-pill">{{ job.status }}</span>
+  </h2>
+
+  {% if running %}
+  <div class="progress">
+    <div class="bar"><span></span></div>
+    <p class="phase">
+      <strong id="phase">{{ p.get('phase', 'starting') }}</strong>
+      &mdash; <span class="mono" id="elapsed">{{ job.get('elapsed')|duration }}</span> elapsed
+      <span id="iteration" class="hint">
+        {%- if p.get('iteration') %} &middot; iteration {{ p.iteration }} of {{ p.iterations }}
+        {%- endif %}
+      </span>
+    </p>
+    <p class="hint" id="phase-detail">{{ p.get('detail', '') }}</p>
+    <p class="hint" id="phase-stats">
+      {%- if p.get('cpu_seconds') is not none %}
+      {{ p.cpu_seconds|duration }} CPU
+      {%- if p.get('rss_mb') %} &middot; {{ p.rss_mb }} MB resident{% endif %}
+      {%- if p.get('scratch_mb') %} &middot; {{ p.scratch_mb }} MB scratch{% endif %}
+      {%- endif %}
+    </p>
+
+    <p class="best" id="best-wrap" {% if p.get('best_score') is none %}hidden{% endif %}>
+      Best GA-score so far
+      <strong id="best-score">
+        {{ '%.6f'|format(p.best_score) if p.get('best_score') is not none else '' }}
+      </strong>
+      <span class="hint">&mdash; this can still improve in a later iteration.</span>
+    </p>
+
+    <form class="stop" method="post" action="{{ url_for('stop_job', job_id=job_id) }}">
+      <button class="button danger" type="submit">Stop this job</button>
+      <span class="hint">Keeps the best alignment found so far.</span>
+    </form>
+  </div>
+  <p class="hint">
+    The run continues if you close this page. It is also listed on the
+    <a href="{{ url_for('jobs_board') }}">jobs board</a>.
+  </p>
+
+  {% elif job.status == 'cancelled' %}
+  {% if job.get('ga_score') is not none %}
+  <p class="score">Best GA-score <strong>{{ '%.6f'|format(job.ga_score) }}</strong>
+    <span class="hint">
+      stopped after {{ job.seconds|duration }}{% if job.get('iteration') %} during iteration
+      {{ job.iteration }} of {{ job.iterations }}{% endif %}
+    </span>
+  </p>
+  <p class="hint">
+    Salvaged from the last checkpoint, so the files below are a real alignment &mdash; but the
+    search had not finished, and a later iteration might have improved on it.
+  </p>
+  {% else %}
+  <p class="lede">
+    Stopped{% if job.get('seconds') %} after {{ job.seconds|duration }}{% endif %}, before the
+    search had produced an alignment to keep.
+  </p>
+  {% endif %}
+
+  {% elif job.status == 'failed' %}
+  <pre class="error-box">{{ job.error }}</pre>
+
+  {% else %}
+  <p class="score">GA-score <strong>{{ '%.6f'|format(job.ga_score) }}</strong>
+    <span class="hint">in {{ job.seconds|duration }}</span></p>
+  {% endif %}
+</div>
+
+{% if downloads %}
+<div class="card">
+  <h2>Output files</h2>
+  <ul class="downloads">
+    {% for label, name, blurb in downloads %}
+    <li>
+      <a href="{{ url_for('job_file', job_id=job_id, name=name) }}" download>{{ name }}</a>
+      <span class="hint">{{ blurb }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{# The viewer shows the finished overlay when there is one, and the live checkpoint otherwise.
+   Both files carry the same REMARK header, so the same drawing code serves both. #}
+{% set has_final = downloads and 'combined.pdb' in downloads|map(attribute=1)|list %}
+{% set has_live = running and p.get('has_preview') %}
+{% if has_final or has_live %}
+<div class="card">
+  <h2>{{ 'Overlay' if has_final else 'Alignment so far' }}</h2>
+  <p class="hint">
+    Reference in <span class="key ref">grey</span>,
+    aligned structure in <span class="key mob">blue</span>,
+    anything carried along in <span class="key lig">orange</span>.
+    {% if has_live %}Redrawn as the search improves on it.{% endif %}
+  </p>
+  <div id="viewer"
+       data-pdb="{{ url_for('job_file', job_id=job_id, name='combined.pdb') if has_final
+                    else url_for('job_preview', job_id=job_id) }}"
+       data-live="{{ 'yes' if has_live else 'no' }}"></div>
+  <p class="hint" id="viewer-note" hidden>
+    The 3D viewer could not load its library from this network. Download
+    <code>combined.pdb</code> and open it in PyMOL or ChimeraX instead.
+  </p>
+</div>
+{% endif %}
+
+{# Present once there are two points to join; while running it is refreshed from the partial. #}
+<div class="card" id="plot-card" {% if not plot %}hidden{% endif %}>
+  <h2>Convergence</h2>
+  <p class="hint">
+    One point per search iteration: the <span class="key mob">running best</span> against each
+    <span class="key att">individual attempt</span>. Iterations that improved the best are
+    ringed. Hover a point for its score and timing.
+  </p>
+  <div id="plot-host">{% include "_convergence.html" %}</div>
+</div>
+
+{% if job.matrix %}
+<div class="card">
+  <h2>Transformation</h2>
+  <table class="matrix">
+    <tr><th></th><th>translation</th><th colspan="3">rotation</th></tr>
+    {% for i in range(3) %}
+    <tr>
+      <th>{{ 'XYZ'[i] }}</th>
+      <td class="mono">{{ '%.6f'|format(job.matrix.translation[i]) }}</td>
+      {% for v in job.matrix.rotation[i] %}<td class="mono">{{ '%.6f'|format(v) }}</td>{% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+<p><a class="button" href="{{ url_for('index') }}">Run another</a></p>
+
+<script>
+  const pending = {{ running|tojson }};
+
+  function duration(seconds) {
+    if (seconds === null || seconds === undefined) return '';
+    seconds = Math.floor(seconds);
+    if (seconds < 60) return seconds + ' s';
+    if (seconds < 3600) return Math.floor(seconds / 60) + ' min ' +
+                               String(seconds % 60).padStart(2, '0') + ' s';
+    return Math.floor(seconds / 3600) + ' h ' +
+           String(Math.floor((seconds % 3600) / 60)).padStart(2, '0') + ' min';
+  }
+
+  // ------------------------------------------------------------------ viewer
+  let viewer = null, framed = false;
+
+  // Colours follow the roles named in the file's own REMARK lines rather than fixed chain
+  // letters: write_combined() leaves the reference on the chains it arrived with and moves the
+  // others onto whatever was free, so a reference on chain H puts the aligned copy at A.
+  function rolesFromRemarks(pdb) {
+    const roles = {};
+    for (const line of pdb.split('\n')) {
+      if (!line.startsWith('REMARK')) continue;
+      const m = line.match(/^REMARK\s+1\s+(reference|aligned|transferred)\s+chains\s+(\S+)/);
+      if (m && m[2] !== '-') roles[m[1]] = m[2].split(',');
+    }
+    return roles;
+  }
+
+  const STYLE = {
+    reference:   {cartoon: {color: '#9aa4b2'}, stick: {radius: 0.12, color: '#9aa4b2'}},
+    aligned:     {cartoon: {color: '#2f6fd0'}, stick: {radius: 0.12, color: '#2f6fd0'}},
+    transferred: {stick: {radius: 0.22, color: '#e07b39'}},
+  };
+
+  async function drawOverlay() {
+    const host = document.getElementById('viewer');
+    if (!host || typeof $3Dmol === 'undefined') return;
+    let pdb;
+    try {
+      pdb = await (await fetch(host.dataset.pdb, {cache: 'no-store'})).text();
+    } catch (err) {
+      return;
+    }
+    if (!viewer) viewer = $3Dmol.createViewer(host, {backgroundColor: 'white'});
+    viewer.removeAllModels();
+    viewer.addModel(pdb, 'pdb');
+    for (const [role, chains] of Object.entries(rolesFromRemarks(pdb))) {
+      if (STYLE[role]) viewer.setStyle({chain: chains}, STYLE[role]);
+    }
+    // Framed once only, so a redraw mid-search does not yank the camera back while someone is
+    // rotating the structure.
+    if (!framed) { viewer.zoomTo(); framed = true; }
+    viewer.render();
+  }
+
+  function viewerFailed() {
+    const note = document.getElementById('viewer-note');
+    if (note) note.hidden = false;
+  }
+
+  // ------------------------------------------------------------------ polling
+  if (pending) {
+    // Counted locally between polls so the clock ticks once a second without asking the server
+    // once a second; each poll resets it to the authoritative value.
+    let elapsed = {{ (job.get('elapsed') or 0)|tojson }};
+    setInterval(() => {
+      elapsed += 1;
+      document.getElementById('elapsed').textContent = duration(elapsed);
+    }, 1000);
+
+    let lastBest = {{ (p.get('best_score') if p.get('best_score') is not none else -1)|tojson }};
+    let lastPoints = {{ (p.get('points') or 0)|tojson }};
+
+    // Re-fetched only when another iteration has landed, which on a long run is a handful of
+    // times across hours rather than once per poll.
+    async function refreshPlot() {
+      try {
+        const svg = await (await fetch(window.location.pathname + '/convergence.svg')).text();
+        if (!svg.trim()) return;
+        document.getElementById('plot-host').innerHTML = svg;
+        document.getElementById('plot-card').hidden = false;
+      } catch (err) { /* a blip; the next iteration tries again */ }
+    }
+
+    setInterval(async () => {
+      let state;
+      try {
+        state = await (await fetch(window.location.pathname + '/status.json')).json();
+      } catch (err) {
+        return;  // a blip; the next tick tries again
+      }
+      if (state.status !== 'queued' && state.status !== 'running') {
+        window.location.reload();
+        return;
+      }
+      if (state.elapsed !== undefined) elapsed = state.elapsed;
+      const prog = state.progress || {};
+      document.getElementById('phase').textContent = prog.phase || state.status;
+      document.getElementById('phase-detail').textContent = prog.detail || '';
+      document.getElementById('iteration').textContent =
+        prog.iteration ? ` \u00b7 iteration ${prog.iteration} of ${prog.iterations}` : '';
+
+      const bits = [];
+      if (prog.cpu_seconds !== undefined) bits.push(duration(prog.cpu_seconds) + ' CPU');
+      if (prog.rss_mb) bits.push(prog.rss_mb + ' MB resident');
+      if (prog.scratch_mb) bits.push(prog.scratch_mb + ' MB scratch');
+      document.getElementById('phase-stats').textContent = bits.join(' \u00b7 ');
+
+      if (prog.points && prog.points !== lastPoints) {
+        lastPoints = prog.points;
+        refreshPlot();
+      }
+
+      if (prog.best_score !== undefined && prog.best_score !== null) {
+        document.getElementById('best-wrap').hidden = false;
+        document.getElementById('best-score').textContent = prog.best_score.toFixed(6);
+        // Only redraw when the alignment actually changed.  The first checkpoint arrives after
+        // the page has already rendered without a viewer, so that case reloads to get one.
+        if (prog.best_score !== lastBest) {
+          lastBest = prog.best_score;
+          if (document.getElementById('viewer')) drawOverlay();
+          else window.location.reload();
+        }
+      }
+    }, 3000);
+  }
+</script>
+
+<!-- Served from the image when the build could vendor it, otherwise from the CDN.  Either may
+     be unavailable on a closed network, which is what viewerFailed() explains. -->
+<script src="{{ url_for('static', filename='3Dmol-min.js') }}"
+        onload="drawOverlay()"
+        onerror="this.remove();
+                 const s = document.createElement('script');
+                 s.src = 'https://3Dmol.org/build/3Dmol-min.js';
+                 s.onload = drawOverlay; s.onerror = viewerFailed;
+                 document.body.appendChild(s);"></script>
+
+{% endblock %}

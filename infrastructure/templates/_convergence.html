@@ -1,0 +1,28 @@
+{# Inline SVG rather than a charting library: the geometry is computed server-side, so the page
+   gains no script and nothing has to load from a CDN that may be blocked.  Kept as a partial so
+   the running job can refresh it from /job/<id>/convergence.svg without the layout maths being
+   reimplemented in JavaScript. #}
+{% if plot %}
+<svg class="convergence" viewBox="0 0 {{ plot.width }} {{ plot.height }}"
+     preserveAspectRatio="none" role="img" aria-label="Best GA-score by search iteration">
+  <line x1="{{ plot.left }}" y1="{{ plot.baseline }}"
+        x2="{{ plot.right }}" y2="{{ plot.baseline }}" class="axis"/>
+  <line x1="{{ plot.left }}" y1="12" x2="{{ plot.left }}" y2="{{ plot.baseline }}" class="axis"/>
+  <text x="{{ plot.left - 6 }}" y="16" class="tick" text-anchor="end">
+    {{ '%.2f'|format(plot.ymax) }}
+  </text>
+  <text x="{{ plot.left - 6 }}" y="{{ plot.baseline }}" class="tick" text-anchor="end">0</text>
+  <text x="{{ plot.right }}" y="{{ plot.height - 8 }}" class="tick" text-anchor="end">
+    {{ plot.attempts|length }} iterations &middot; {{ plot.elapsed }} s
+  </text>
+
+  <polyline points="{{ plot.best }}" class="best-line"/>
+  {% for a in plot.attempts %}
+  <circle cx="{{ a.x }}" cy="{{ a.y }}" r="{{ 4 if a.improved else 2.6 }}"
+          class="attempt{{ ' improved' if a.improved }}">
+    <title>{{ a.stage }} {{ a.iteration }}/{{ a.total }} &mdash; score {{
+      '%.4f'|format(a.score) }} at {{ a.seconds }} s</title>
+  </circle>
+  {% endfor %}
+</svg>
+{% endif %}

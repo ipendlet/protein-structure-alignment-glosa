@@ -1,0 +1,210 @@
+:root {
+  --ink: #16202c;
+  --muted: #667085;
+  --line: #dfe3e8;
+  --accent: #2f6fd0;
+  --bg: #f5f7fa;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+        sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: .75rem;
+  padding: 1rem 1.5rem;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+.brand { font-size: 1.2rem; font-weight: 650; color: var(--ink); text-decoration: none; }
+.tagline { color: var(--muted); font-size: .85rem; }
+header nav { margin-left: auto; display: flex; gap: 1rem; }
+header nav a { color: var(--accent); text-decoration: none; font-size: .88rem; }
+header nav a:hover { text-decoration: underline; }
+
+main { max-width: 900px; margin: 1.5rem auto 3rem; padding: 0 1.25rem; }
+
+footer {
+  max-width: 900px;
+  margin: 0 auto 2rem;
+  padding: 0 1.25rem;
+  color: var(--muted);
+  font-size: .8rem;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1.25rem 1.4rem;
+  margin-bottom: 1.25rem;
+}
+.card h2 { margin: 0 0 .5rem; font-size: 1.05rem; font-weight: 620; }
+.card h2 .more { float: right; font-size: .82rem; font-weight: 400; color: var(--accent);
+                 text-decoration: none; }
+.card.error { border-color: #e4b4b4; }
+
+.lede { color: var(--muted); margin: 0 0 1rem; }
+.hint { color: var(--muted); font-size: .84rem; margin: .25rem 0; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .86em; }
+
+.slots { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: .75rem .9rem 1rem;
+  margin: 0;
+}
+legend { font-weight: 600; font-size: .88rem; padding: 0 .35rem; }
+fieldset label { display: block; margin-top: .6rem; font-size: .85rem; color: var(--muted); }
+fieldset input[type=file], fieldset select { display: block; width: 100%; margin-top: .25rem; }
+
+select, input[type=file] {
+  font: inherit;
+  font-size: .85rem;
+  padding: .3rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+details { margin: 1.1rem 0; }
+summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+.advanced {
+  display: grid;
+  gap: .8rem;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  margin: .8rem 0;
+}
+.advanced label { font-size: .85rem; color: var(--muted); }
+
+fieldset.override { margin-top: 1rem; }
+fieldset.override label { display: inline-block; width: calc(50% - .5rem); vertical-align: top; }
+
+.button {
+  display: inline-block;
+  padding: .5rem 1.05rem;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: .9rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+.button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.button.danger { color: #97241f; border-color: #e0b9b7; }
+.button.danger:hover { background: #fdf5f5; }
+.button.tiny { padding: .18rem .55rem; font-size: .78rem; }
+
+.pill {
+  display: inline-block;
+  padding: .1rem .55rem;
+  border-radius: 999px;
+  font-size: .74rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  vertical-align: middle;
+}
+.pill.done { background: #dcf3e4; color: #1d6b39; }
+.pill.failed { background: #fadcdc; color: #97241f; }
+.pill.running, .pill.queued { background: #fdf0d2; color: #8a6116; }
+.pill.cancelled { background: #e6e8ec; color: #4a5260; }
+
+.progress .best { margin: .7rem 0 .2rem; font-size: .92rem; }
+.progress .best strong { font-size: 1.15rem; color: var(--accent); }
+.progress .stop { margin: .9rem 0 .2rem; display: flex; align-items: center; gap: .7rem; }
+.board td[data-cell="stop"] form { margin: 0; }
+
+.progress { margin: .75rem 0 .25rem; }
+.progress .phase { margin: .6rem 0 .2rem; font-size: .95rem; }
+.progress .phase strong { color: var(--accent); }
+
+/* An indeterminate sweep, not a percentage.  The clique search is branch-and-bound, so the
+   fraction done is not knowable and a filling bar would be inventing one. */
+.progress .bar {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.progress .bar span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 30%;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: sweep 1.9s ease-in-out infinite;
+}
+@keyframes sweep {
+  0%   { left: -30%; }
+  100% { left: 100%; }
+}
+
+.board td { vertical-align: middle; }
+.board td[data-cell="phase"] { font-size: .8rem; }
+
+.score { font-size: 1.1rem; margin: .25rem 0; }
+.score strong { font-size: 1.45rem; color: var(--accent); }
+
+.downloads { list-style: none; padding: 0; margin: 0; }
+.downloads li { padding: .4rem 0; border-bottom: 1px solid var(--line); }
+.downloads li:last-child { border-bottom: 0; }
+.downloads a { font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--accent); }
+
+#viewer {
+  position: relative;
+  width: 100%;
+  height: 430px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.key { font-weight: 600; }
+.key.ref { color: #6b7684; }
+.key.mob { color: var(--accent); }
+.key.lig { color: #c25f17; }
+.key.att { color: #99a2ae; }
+
+/* preserveAspectRatio="none" on the svg means the viewBox stretches to the container, so the
+   stroke widths below are in viewBox units and scale with it. */
+.convergence { width: 100%; height: 180px; display: block; }
+.convergence .axis { stroke: var(--line); stroke-width: 1; }
+.convergence .tick { fill: var(--muted); font-size: 11px; }
+.convergence .best-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.convergence .attempt { fill: #aeb6c2; }
+.convergence .attempt.improved { fill: var(--accent); stroke: #fff; stroke-width: 1.5; }
+
+table { border-collapse: collapse; width: 100%; font-size: .87rem; }
+th, td { text-align: left; padding: .35rem .55rem; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; }
+
+.error-box {
+  background: #fdf5f5;
+  border: 1px solid #e4b4b4;
+  border-radius: 6px;
+  padding: .75rem;
+  overflow-x: auto;
+  font-size: .8rem;
+  white-space: pre-wrap;
+}

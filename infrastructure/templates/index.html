@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block content %}
+
+<form class="card" method="post" action="{{ url_for('start_alignment') }}"
+      enctype="multipart/form-data">
+  <h2>Align two structures</h2>
+  <p class="lede">
+    The second structure is rotated onto the first. Upload a PDB for each slot, or pick one of
+    the bundled examples &mdash; a structure is all that is needed, since the chemical feature
+    files G-LoSA scores against are derived from it here.
+  </p>
+
+  <div class="slots">
+    {% for field, heading, blurb in [
+         ('s1', 'Reference (-s1)', 'Stays put. Everything else is moved onto it.'),
+         ('s2', 'Mobile (-s2)', 'Scored against the reference and superposed onto it.'),
+         ('s2w', 'Carried along (-s2w, optional)',
+          'Not scored. Moved by the same matrix -- this is where a ligand goes.')] %}
+    <fieldset>
+      <legend>{{ heading }}</legend>
+      <p class="hint">{{ blurb }}</p>
+      <label>Upload <input type="file" name="{{ field }}" accept=".pdb,.ent,.txt"></label>
+      <label>or example
+        <select name="{{ field }}_example">
+          <option value="">&mdash;</option>
+          {% for name in examples %}<option value="{{ name }}">{{ name }}</option>{% endfor %}
+        </select>
+      </label>
+    </fieldset>
+    {% endfor %}
+  </div>
+
+  <details>
+    <summary>Advanced options</summary>
+    <div class="advanced">
+      <label>CA clique iterations <code>-iter</code>
+        <select name="iter">
+          <option value="">default (3)</option>
+          <option value="0">0 &mdash; skip, fastest</option>
+          <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+        </select>
+      </label>
+      <label>Feature clique iterations <code>-itercf</code>
+        <select name="itercf">
+          <option value="">default (0)</option>
+          <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+        </select>
+      </label>
+      <label>Score normalisation <code>-n</code>
+        <select name="norm">
+          <option value="">default &mdash; smaller structure</option>
+          <option value="2">larger structure</option>
+          <option value="3">average of the two</option>
+          <option value="4">reference (s1)</option>
+          <option value="5">mobile (s2)</option>
+        </select>
+      </label>
+    </div>
+    <p class="hint">
+      Runtime grows with the square of the residue count. Two binding sites take under a second;
+      two whole chains can take hours and are better run offline.
+    </p>
+
+    <fieldset class="override">
+      <legend>Chemical feature files</legend>
+      <p class="hint">
+        Computed from the two structures by default, which is why the form asks only for PDBs.
+        Supply them here only to override that &mdash; for instance to score against a
+        hand-edited feature set.
+      </p>
+      <label>Reference features <code>-s1cf</code>
+        <input type="file" name="s1cf" accept=".pdb,.txt"></label>
+      <label>Mobile features <code>-s2cf</code>
+        <input type="file" name="s2cf" accept=".pdb,.txt"></label>
+    </fieldset>
+  </details>
+
+  <button class="button primary" type="submit">Run alignment</button>
+</form>
+
+{% if recent %}
+<div class="card">
+  <h2>Recent jobs <a class="more" href="{{ url_for('jobs_board') }}">full board &rarr;</a></h2>
+  <table class="jobs">
+    <tr><th>Submitted</th><th>Structures</th><th>Status</th><th>Elapsed</th><th>GA-score</th></tr>
+    {% for job in recent %}
+    <tr>
+      <td><a href="{{ url_for('show_job', job_id=job.id) }}">{{ job.submitted[:19] }}</a></td>
+      <td class="mono">{{ job.s1 }} &rarr; {{ job.s2 }}</td>
+      <td><span class="pill {{ job.status }}">{{ job.status }}</span></td>
+      <td class="mono">
+        {{ (job.elapsed if job.get('elapsed') is not none else job.get('seconds'))|duration }}
+      </td>
+      {# job.get, not job.ga_score: a queued or failed job has no such key, and an undefined
+         value is not None, so `is not none` would let it reach format() and raise. #}
+      <td class="mono">{{ '%.4f'|format(job.get('ga_score')) if job.get('ga_score') else '' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}G-LoSA &mdash; jobs{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h2>
+    Jobs
+    <span class="pill {{ 'running' if active else 'done' }}" id="active-count">
+      {{ active }} active
+    </span>
+  </h2>
+  <p class="lede">
+    Unfinished jobs are listed first. The page updates itself every few seconds; alignments keep
+    running whether or not anyone is watching.
+  </p>
+
+  {% if not jobs %}
+  <p class="hint">Nothing has been submitted yet.</p>
+  {% else %}
+  <table class="jobs board" id="board" data-count="{{ jobs|length }}">
+    <tr>
+      <th>Submitted</th><th>Structures</th><th>Status</th>
+      <th>Elapsed</th><th>Doing</th><th>GA-score</th><th></th>
+    </tr>
+    {% for job in jobs %}
+    {% set p = job.get('progress') or {} %}
+    <tr data-id="{{ job.id }}">
+      <td><a href="{{ url_for('show_job', job_id=job.id) }}">{{ job.submitted[11:19] }}</a></td>
+      <td class="mono">{{ job.s1 }} &larr; {{ job.s2 }}</td>
+      <td data-cell="status"><span class="pill {{ job.status }}">{{ job.status }}</span></td>
+      <td data-cell="elapsed" class="mono">
+        {{ (job.elapsed if job.get('elapsed') is not none else job.get('seconds'))|duration }}
+      </td>
+      <td data-cell="phase" class="hint">
+        {{- p.get('phase', '') }}
+        {%- if p.get('iteration') %} ({{ p.iteration }}/{{ p.iterations }}){% endif %}
+      </td>
+      {# A running job shows its best-so-far, marked, rather than an empty cell. #}
+      <td data-cell="score" class="mono">
+        {%- if job.get('ga_score') %}{{ '%.4f'|format(job.ga_score) }}
+        {%- elif p.get('best_score') is not none %}{{ '%.4f'|format(p.best_score) }}
+          <span class="hint">so far</span>
+        {%- endif %}
+      </td>
+      <td data-cell="stop">
+        {% if job.status in ('queued', 'running') %}
+        <form method="post" action="{{ url_for('stop_job', job_id=job.id) }}">
+          <button class="button tiny danger" type="submit">Stop</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+</div>
+
+<p><a class="button" href="{{ url_for('index') }}">Submit another</a></p>
+
+<script>
+  // Cells are patched from /jobs.json rather than reloading the page, so a board left open on a
+  // second monitor does not jump back to the top every few seconds.  A full reload happens only
+  // when the number of jobs changes, since that means a row has to be added or removed.
+  const board = document.getElementById('board');
+
+  function duration(seconds) {
+    if (seconds === null || seconds === undefined) return '';
+    seconds = Math.floor(seconds);
+    if (seconds < 60) return seconds + ' s';
+    if (seconds < 3600) return Math.floor(seconds / 60) + ' min ' +
+                               String(seconds % 60).padStart(2, '0') + ' s';
+    return Math.floor(seconds / 3600) + ' h ' +
+           String(Math.floor((seconds % 3600) / 60)).padStart(2, '0') + ' min';
+  }
+
+  function set(row, cell, html) {
+    const td = row.querySelector(`[data-cell="${cell}"]`);
+    if (td) td.innerHTML = html;
+  }
+
+  async function refresh() {
+    let payload;
+    try {
+      payload = await (await fetch('{{ url_for("jobs_feed") }}')).json();
+    } catch (err) {
+      return;  // a blip; the next tick tries again
+    }
+    if (!board) { if (payload.jobs.length) window.location.reload(); return; }
+    if (payload.jobs.length !== Number(board.dataset.count)) { window.location.reload(); return; }
+
+    let active = 0;
+    for (const job of payload.jobs) {
+      if (job.status === 'queued' || job.status === 'running') active += 1;
+      const row = board.querySelector(`tr[data-id="${job.id}"]`);
+      if (!row) { window.location.reload(); return; }
+      const p = job.progress || {};
+      set(row, 'status', `<span class="pill ${job.status}">${job.status}</span>`);
+      set(row, 'elapsed', duration(job.elapsed !== undefined ? job.elapsed : job.seconds));
+      set(row, 'phase', (p.phase || '') +
+                        (p.iteration ? ` (${p.iteration}/${p.iterations})` : ''));
+      if (job.ga_score) {
+        set(row, 'score', job.ga_score.toFixed(4));
+      } else if (p.best_score !== undefined && p.best_score !== null) {
+        set(row, 'score', p.best_score.toFixed(4) + ' <span class="hint">so far</span>');
+      } else {
+        set(row, 'score', '');
+      }
+      // A job that has just finished loses its Stop button; the cell is cleared rather than
+      // reloading the whole board for it.
+      if (job.status !== 'queued' && job.status !== 'running') set(row, 'stop', '');
+    }
+    const pill = document.getElementById('active-count');
+    pill.textContent = active + ' active';
+    pill.className = 'pill ' + (active ? 'running' : 'done');
+  }
+
+  setInterval(refresh, 4000);
+</script>
+
+{% endblock %}

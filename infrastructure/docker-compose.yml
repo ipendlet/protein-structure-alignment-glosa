@@ -1,0 +1,61 @@
+# Every site-specific value here comes from the environment, which `make` fills in from
+# deploy.conf.  Running `docker compose` directly therefore needs those variables exported --
+# the `:?` guards say so rather than silently publishing under a wrong name.
+
+# Shared with the machine's Traefik listener, which discovers this container through the
+# container API and routes to it by hostname.  Created out of band (see README.md); never owned
+# by this project, which is why `make down` leaves it alone.
+networks:
+  traefik:
+    name: ${TRAEFIK_NETWORK:-traefik}
+    external: true
+
+volumes:
+  glosa-jobs:
+
+services:
+  glosa:
+    container_name: ${SERVICE_NAME:-glosa}
+    build:
+      # The package root, so the Dockerfile can COPY src/, example/ and the app.
+      context: ..
+      dockerfile: infrastructure/Dockerfile
+      args:
+        # Empty means Docker Hub; deploy.conf sets DOCKER_REGISTRY_HOST when the build network
+        # can only reach a mirror.
+        - IMAGE_PREFIX=${IMAGE_PREFIX:-}
+        - PIP_INDEX_URL=${PIP_INDEX_URL:-${TEMP_PIP_INDEX_URL:-}}
+
+    # Keep the published endpoint up across crashes and reboots.  Under rootless podman this
+    # pairs with `systemctl --user enable podman-restart.service`, which is what actually
+    # restarts containers after a boot.
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "${GLOSA_PORT:-8657}:8057"
+
+    # Alignment results survive a redeploy; the app prunes them on the retention window below.
+    volumes:
+      - glosa-jobs:/data
+
+    environment:
+      # A whole-protein pair can run for hours and spill a multi-gigabyte product graph, which
+      # on a shared endpoint is a denial of service rather than a feature.  Jobs past this are
+      # killed; raise it deliberately, or run those offline with infrastructure/align_cli.py.
+      - GLOSA_TIMEOUT=${GLOSA_TIMEOUT:-1800}
+      - GLOSA_JOB_RETENTION_HOURS=${GLOSA_JOB_RETENTION_HOURS:-72}
+      - GLOSA_MAX_UPLOAD_MB=${GLOSA_MAX_UPLOAD_MB:-32}
+
+    # PUBLIC_HOSTNAME is deliberately required rather than defaulted: a wildcard record forwards
+    # to whichever machine claims a given name, so a wrong value publishes this deployment under
+    # a different machine's hostname.  `make up` always supplies it.
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:-traefik}
+      - traefik.http.routers.${SERVICE_NAME}.rule=Host(`${PUBLIC_HOSTNAME:?set PUBLIC_HOSTNAME (use make up, not docker compose directly)}`)
+      - traefik.http.routers.${SERVICE_NAME}.entrypoints=${TRAEFIK_ENTRYPOINT:-web}
+      - traefik.http.routers.${SERVICE_NAME}.service=${SERVICE_NAME}
+      - traefik.http.services.${SERVICE_NAME}.loadbalancer.server.port=8057
+    networks:
+      - traefik

@@ -1,0 +1,18 @@
+--------------------------------------------
+   Description of Example Structure Files
+--------------------------------------------
+
+1IA1-lig.pdb    : ligand structure in PDB:1IA1
+1IA1-bs.pdb     : binding site structure for ligand 1IA1-lig.pdb
+
+2BL9-lig.pdb    : ligand structure in PDB:2BL9
+2BL9-bs.pdb     : binding site structure for ligand 2BL9-lig.pdb
+
+3SRQ-lig.pdb    : ligand structure in PDB:3SRQ
+3SRQ-bs.pdb     : binding site structure for ligand 3SRQ-lig.pdb
+
+1NEZ_H.pdb      : protein chain H of PDB:1NEZ
+1NEZ-surface.pdb: protein binding surface on 1NEZ_H.pdb
+
+2ATP_C.pdb      : protein chain C of PDB:2ATP
+2ATP-surface.pdb: protein binding surface on 2ATP_C.pdb

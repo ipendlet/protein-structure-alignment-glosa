@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}G-LoSA &mdash; error{% endblock %}
+{% block content %}
+<div class="card error">
+  <h2>That did not work</h2>
+  <p>{{ message }}</p>
+  <a class="button" href="{{ url_for('index') }}">Back to the form</a>
+</div>
+{% endblock %}

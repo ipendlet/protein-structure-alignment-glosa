@@ -1,0 +1,91 @@
+# Site-specific deployment settings.  Copy to deploy.conf and edit; deploy.conf is in
+# .gitignore, so internal hostnames, registries and routing domains stay out of the repository.
+#
+#   cp deploy.conf.example deploy.conf
+#
+# The syntax is `KEY=value`, one per line, no quotes and no spaces around the `=`.  The file is
+# read both by `include` in the Makefile and by build-local.sh, so it must stay plain
+# assignments -- no shell expansion, no backticks.  Anything after a `#` is a comment.
+#
+# Everything here has a working default except ROUTING_DOMAIN, so the minimum viable file is one
+# line.  Values can also be overridden per invocation: `make up SERVICE_NAME=glosa-test`.
+
+
+# --------------------------------------------------------------------------- identity and port
+
+# Container name, Traefik router name, and the first label of the published hostname.  Change it
+# (along with GLOSA_PORT) to run a second copy beside the first.
+SERVICE_NAME=glosa
+
+# Host port published alongside the Traefik route.  It is what lets `make verify` tell "the
+# container is broken" apart from "the routing is broken", so keep it even behind a proxy.
+GLOSA_PORT=8657
+
+
+# --------------------------------------------------------------------------- published hostname
+
+# The service is published at <SERVICE_NAME>.<NODENAME>.<ROUTING_DOMAIN>, or at
+# <SERVICE_NAME>.<ROUTING_DOMAIN> when NODENAME is empty.  Required.
+ROUTING_DOMAIN=apps.example.com
+
+# NODE_MAP inserts a per-machine label into that hostname, for the case where one wildcard
+# record fans out to several machines and each needs its own name.  It maps the local short
+# hostname to that label:
+#
+#   NODE_MAP=build-node-01=gpu1 build-node-02=gpu2 workstation-07=ws07
+#
+# A host that appears in a non-empty NODE_MAP but has no entry resolves to UNMAPPED, and
+# build/up/redeploy refuse to run rather than publish this deployment under some other machine's
+# hostname.  Leave NODE_MAP empty if the domain does not have that extra level.
+NODE_MAP=
+
+# Set NODENAME to pin the label explicitly and skip the hostname lookup, or PUBLIC_HOSTNAME to
+# bypass the whole scheme and give the final name outright.
+#NODENAME=
+#PUBLIC_HOSTNAME=glosa.apps.example.com
+
+
+# --------------------------------------------------------------------------- container runtime
+
+# `docker` or `podman`.  COMPOSE_CLI defaults to "<CONTAINER_CLI> compose"; override it if
+# compose is a standalone binary (e.g. COMPOSE_CLI=podman-compose).
+CONTAINER_CLI=docker
+#COMPOSE_CLI=docker compose
+
+# Registry to pull the python and eclipse-temurin base images from.  Leave empty for Docker Hub;
+# set it to a mirror's host and repository path when the build network cannot reach Hub:
+#
+#   DOCKER_REGISTRY_HOST=registry.example.com/docker-virtual
+DOCKER_REGISTRY_HOST=
+
+# Set when that mirror needs a login and shares its credentials with the PyPI mirror -- which is
+# the usual arrangement for Artifactory and Nexus.  build-local.sh then reads the credentials
+# out of the local pip config and logs CONTAINER_CLI into this host.  Host only, no path.
+#REGISTRY_LOGIN_HOST=registry.example.com
+
+
+# --------------------------------------------------------------------------- reverse proxy
+
+# The service publishes Traefik labels and joins an existing external network, which a Traefik
+# instance on the same machine watches.  Deploying without one costs nothing: the labels are
+# inert, and the host port still serves.
+TRAEFIK_NETWORK=traefik
+TRAEFIK_ENTRYPOINT=web
+
+# Name of that local Traefik container.  `make verify` only looks for it to say so when it is
+# missing, which is the usual cause of a 000 through the proxy.
+TRAEFIK_RELAY_CONTAINER=traefik_relay
+
+
+# --------------------------------------------------------------------------- runtime limits
+
+# Seconds before a web-submitted alignment is killed.  Runtime grows with the square of the
+# residue count, so an uncapped whole-protein pair is a denial of service on a shared endpoint
+# rather than a feature.  Run those offline with infrastructure/align_cli.py --timeout 0.
+GLOSA_TIMEOUT=1800
+
+# Hours a finished job's directory is kept before the service prunes it.
+GLOSA_JOB_RETENTION_HOURS=72
+
+# Largest accepted upload, in megabytes.
+GLOSA_MAX_UPLOAD_MB=32
