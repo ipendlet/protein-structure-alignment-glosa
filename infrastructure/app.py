@@ -164,7 +164,8 @@ def cancel_marker(directory: Path) -> Path:
     return directory / "cancelled"
 
 
-def run_job(job_id: str, paths: dict[str, Path | None], extra: list[str]) -> None:
+def run_job(job_id: str, paths: dict[str, Path | None], extra: list[str],
+            memory_limit_mb: int) -> None:
     """Execute one alignment and record the outcome in `status.json`."""
     directory = JOBS_DIR / job_id
     if cancel_marker(directory).exists():
@@ -182,6 +183,7 @@ def run_job(job_id: str, paths: dict[str, Path | None], extra: list[str]) -> Non
             features2=paths["s2cf"],
             outdir=directory / "out",
             extra_args=extra,
+            memory_limit_mb=memory_limit_mb,
         )
         write_status(
             directory,
@@ -219,7 +221,11 @@ def index():
     purge_old_jobs()
     examples = sorted(p.name for p in EXAMPLE_DIR.glob("*.pdb")
                       if not p.name.startswith("._") and "-cf" not in p.name)
-    return render_template("index.html", examples=examples, recent=recent_jobs())
+    return render_template(
+        "index.html", examples=examples, recent=recent_jobs(),
+        default_memory_limit_mb=glosa_runner.DEFAULT_MEMORY_LIMIT_MB,
+        max_memory_limit_mb=glosa_runner.MAX_MEMORY_LIMIT_MB,
+    )
 
 
 def recent_jobs(limit: int | None = 10) -> list[dict]:
@@ -277,6 +283,23 @@ def start_alignment():
         if value:
             extra += [flag, value]
 
+    # Blank means the default. A value is clamped rather than rejected: someone who types a
+    # number past the ceiling almost certainly wants "as much as this form will give me", not an
+    # error page, and the ceiling exists so that answer is still a bounded, non-zero number --
+    # the web form is a shared endpoint, so it cannot hand out glosa_runner's own 0 (no limit).
+    raw_memory_limit = (request.form.get("memory_limit_mb") or "").strip()
+    if raw_memory_limit:
+        try:
+            memory_limit_mb = int(raw_memory_limit)
+        except ValueError:
+            shutil.rmtree(directory, ignore_errors=True)
+            return render_template(
+                "error.html", message=f"memory limit {raw_memory_limit!r} is not a whole number",
+            ), 400
+        memory_limit_mb = max(1, min(memory_limit_mb, glosa_runner.MAX_MEMORY_LIMIT_MB))
+    else:
+        memory_limit_mb = glosa_runner.DEFAULT_MEMORY_LIMIT_MB
+
     write_status(
         directory,
         status="queued",
@@ -286,9 +309,10 @@ def start_alignment():
         s2w=paths["s2w"].name if paths["s2w"] else None,
         features="supplied" if (paths["s1cf"] or paths["s2cf"]) else "derived from the structures",
         extra=" ".join(extra),
+        memory_limit_mb=memory_limit_mb,
         submitted=datetime.now(timezone.utc).isoformat(),
     )
-    EXECUTOR.submit(run_job, job_id, paths, extra)
+    EXECUTOR.submit(run_job, job_id, paths, extra, memory_limit_mb)
     return redirect(url_for("show_job", job_id=job_id))
 
 
