@@ -1,0 +1,19 @@
+# Build artifacts (see Makefile: `make` produces these, `make clean` removes them)
+/glosa
+/classes/
+
+# Python
+__pycache__/
+*.pyc
+/.venv/
+
+# Local site configuration -- build-local.sh writes .env, deploy.conf is copied by hand from
+# deploy.conf.example (see infrastructure/README.md)
+/infrastructure/.env
+/infrastructure/deploy.conf
+
+# Alignment output (see glosa_runner.py / app.py)
+/runs/
+
+# IDE
+/.idea/
