@@ -32,6 +32,10 @@ def main() -> int:
                              "when omitted")
     parser.add_argument("--timeout", type=int, default=0,
                         help="seconds before the run is killed; 0 means no limit")
+    parser.add_argument("--memory-limit", type=int, default=0, metavar="MB",
+                        help="MB each step may use before it is killed; 0 means no limit "
+                             "(unlike the web form, not capped -- this is the offline path for "
+                             "a pair too large for the shared endpoint)")
     parser.add_argument("--keep-scratch", action="store_true",
                         help="keep pairs.rst and product_graph.rst, which can be very large")
     parser.add_argument("extra", nargs="*",
@@ -48,6 +52,7 @@ def main() -> int:
             outdir=args.outdir,
             extra_args=args.extra,
             timeout=args.timeout or 2**31 - 1,
+            memory_limit_mb=args.memory_limit,
             keep_scratch=args.keep_scratch,
         )
     except GlosaError as exc:

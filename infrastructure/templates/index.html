@@ -55,10 +55,21 @@
           <option value="5">mobile (s2)</option>
         </select>
       </label>
+      <label>Memory limit (MB)
+        <input type="number" name="memory_limit_mb" min="1" max="{{ max_memory_limit_mb }}"
+               step="256" placeholder="default ({{ default_memory_limit_mb }})">
+      </label>
     </div>
     <p class="hint">
       Runtime grows with the square of the residue count. Two binding sites take under a second;
       two whole chains can take hours and are better run offline.
+    </p>
+    <p class="hint">
+      The memory limit kills the run outright if it is passed, rather than letting it exhaust the
+      host. Structures with internal symmetry (repeated or near-identical chains) can need far
+      more than their atom count suggests &mdash; raise this for one such run rather than
+      guessing lower elsewhere. Capped at {{ max_memory_limit_mb }} MB here; the command-line tool
+      has no cap, for a pair better run offline anyway.
     </p>
 
     <fieldset class="override">

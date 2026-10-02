@@ -18,6 +18,7 @@ Two properties of the `glosa` binary shape the design:
 
 from __future__ import annotations
 
+import functools
 import os
 import re
 import shutil
@@ -41,6 +42,61 @@ JAVA_BIN = os.environ.get("JAVA_BIN") or shutil.which("java") or "java"
 # A whole-protein pair can run for hours and spill a very large product graph, which is a denial
 # of service on a shared endpoint.  Callers may raise it for deliberate offline runs.
 DEFAULT_TIMEOUT = int(os.environ.get("GLOSA_TIMEOUT", "900"))
+
+# The clique search's memory, unlike its runtime, is not something a timeout protects against: a
+# pair of structures with internal symmetry (repeated/near-identical chains) makes the product
+# graph degenerate and RSS can climb tens of gigabytes in well under a minute -- one pair hit
+# 22 GiB in 93 seconds and was still climbing when the kernel OOM-killer took it down, which is
+# global and took the risk of taking neighbouring processes with it.
+#
+# DEFAULT_MEMORY_LIMIT_MB is the fallback when a caller does not ask for a specific limit; `align`
+# and the CLI's `--memory-limit` let one job ask for more without touching the environment.
+# MAX_MEMORY_LIMIT_MB is a separate, server-side ceiling: the web form exposes the limit as an
+# advanced setting, and without a ceiling a visitor could type a number large enough to turn the
+# guard back off in practice. The CLI is not bound by it -- it is the documented place for a
+# deliberate, unbounded offline run (see align_cli.py), and nothing there is shared.
+# 0 disables the guard, for a host with no systemd user session (e.g. most containers) where it
+# cannot be enforced anyway.
+DEFAULT_MEMORY_LIMIT_MB = int(os.environ.get("GLOSA_MEMORY_LIMIT_MB", "8192"))
+MAX_MEMORY_LIMIT_MB = int(os.environ.get("GLOSA_MAX_MEMORY_LIMIT_MB", "24576"))
+
+
+@functools.lru_cache(maxsize=1)
+def _memory_guard_available() -> bool:
+    """Whether `systemd-run --user --scope` can actually cap memory here.
+
+    True on a normal systemd user session (this machine); false in most containers, which have
+    no D-Bus user session for it to talk to. Probed once and cached rather than asserted, so a
+    host without it silently falls back to running unguarded instead of failing every job.
+    """
+    if shutil.which("systemd-run") is None:
+        return False
+    try:
+        probe = subprocess.run(
+            ["systemd-run", "--user", "--scope", "--quiet", "--collect",
+             "-p", "MemoryMax=16M", "-p", "MemorySwapMax=0", "--", "true"],
+            capture_output=True, timeout=5, text=True,
+        )
+        return probe.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _guarded_argv(argv: list[str], memory_limit_mb: int) -> list[str]:
+    """Wrap a command so it is killed outright rather than allowed to exhaust host memory.
+
+    `--scope` execs the command in place (same PID), so this is transparent to callers that
+    publish or poll that PID. MemorySwapMax=0 alongside MemoryMax matters: without it, cgroup v2
+    lets the process swap instead of being killed, which on this host just thrashes everything
+    else instead of failing the one runaway job.
+    """
+    if memory_limit_mb <= 0 or not _memory_guard_available():
+        return argv
+    return [
+        "systemd-run", "--user", "--scope", "--quiet", "--collect",
+        "-p", f"MemoryMax={memory_limit_mb}M", "-p", "MemorySwapMax=0", "--",
+        *argv,
+    ]
 
 # Scratch files glosa leaves in its working directory.  product_graph.rst is the big one.
 # checkpoint.rst is the progress file written by the local patch to glosa.cpp; it is redundant
@@ -79,7 +135,7 @@ class AlignResult:
     chain_roles: dict[str, list[str]] = field(default_factory=dict)
 
 
-def _run(cmd: list[str], cwd: Path, timeout: int,
+def _run(cmd: list[str], cwd: Path, timeout: int, memory_limit_mb: int,
          pid_file: Path | None = None) -> subprocess.CompletedProcess:
     """Run one step to completion, optionally publishing its PID while it lives.
 
@@ -88,8 +144,10 @@ def _run(cmd: list[str], cwd: Path, timeout: int,
     process and the files it is leaving behind, and both need the PID.
     """
     argv = [str(c) for c in cmd]
-    popen = subprocess.Popen(argv, cwd=str(cwd), stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, text=True)
+    guarded = memory_limit_mb > 0 and _memory_guard_available()
+    launch_argv = _guarded_argv(argv, memory_limit_mb) if guarded else argv
+    popen = subprocess.Popen(launch_argv, cwd=str(cwd),
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     if pid_file is not None:
         pid_file.write_text(str(popen.pid))
     try:
@@ -109,8 +167,20 @@ def _run(cmd: list[str], cwd: Path, timeout: int,
         if proc.returncode < 0:
             # subprocess reports a fatal signal as a negative return code.  glosa has no input
             # validation of its own and dies this way on anything it cannot parse, so the raw
-            # number on its own tells the user nothing.
+            # number on its own tells the user nothing -- except SIGKILL under the memory guard,
+            # which means something more specific than "could not parse the input".
             signal_name = signal.Signals(-proc.returncode).name
+            if guarded and signal_name == "SIGKILL":
+                raise GlosaError(
+                    f"{name} was killed by SIGKILL, most likely for passing the "
+                    f"{memory_limit_mb} MB memory cap for this run. This pair's product graph "
+                    f"probably went degenerate -- the usual cause is internal symmetry "
+                    f"(repeated or near-identical chains) in one or both structures, which the "
+                    f"clique search explores combinatorially. Raise the memory limit for this "
+                    f"run (an advanced option on the form, up to {MAX_MEMORY_LIMIT_MB} MB; the "
+                    f"CLI's --memory-limit is not capped), or align single chains instead of "
+                    f"whole complexes."
+                )
             raise GlosaError(
                 f"{name} was killed by {signal_name}. This usually means one of the structures "
                 f"is not something it can score. {detail}".strip()
@@ -473,7 +543,9 @@ def normalise_pdb(src: Path, dst: Path) -> Path:
     return dst
 
 
-def assign_chemical_features(pdb: Path, workdir: Path, timeout: int, label: str = "") -> Path:
+def assign_chemical_features(pdb: Path, workdir: Path, timeout: int,
+                              memory_limit_mb: int = DEFAULT_MEMORY_LIMIT_MB,
+                              label: str = "") -> Path:
     """Produce the `<stem>-cf.pdb` feature file that `glosa` needs for a structure.
 
     AssignChemicalFeatures writes beside its input and derives the name from it, so the caller
@@ -481,7 +553,8 @@ def assign_chemical_features(pdb: Path, workdir: Path, timeout: int, label: str 
     about the input: the working copies are called s1.pdb and s2.pdb, which would mean nothing
     to whoever uploaded the file.
     """
-    _run([JAVA_BIN, "-cp", str(CLASSES_ACF), "AssignChemicalFeatures", pdb.name], workdir, timeout)
+    _run([JAVA_BIN, "-cp", str(CLASSES_ACF), "AssignChemicalFeatures", pdb.name], workdir, timeout,
+         memory_limit_mb)
     produced = workdir / f"{pdb.stem}-cf.pdb"
     if not produced.exists():
         raise GlosaError(f"no chemical-feature file was produced for {label or pdb.name}")
@@ -593,7 +666,7 @@ def write_combined(reference: Path, aligned: Path, dest: Path, ligand: Path | No
 
 
 def _feature_file(structure: Path, supplied: Path | None, workdir: Path, timeout: int,
-                  label: str) -> Path:
+                  memory_limit_mb: int, label: str) -> Path:
     """Use a caller-supplied feature file if there is one, otherwise derive it from the PDB.
 
     The upstream instructions have the user run AssignChemicalFeatures by hand and pass the
@@ -603,7 +676,7 @@ def _feature_file(structure: Path, supplied: Path | None, workdir: Path, timeout
     set and wants that used verbatim.
     """
     if supplied is None:
-        return assign_chemical_features(structure, workdir, timeout, label)
+        return assign_chemical_features(structure, workdir, timeout, memory_limit_mb, label)
     destination = workdir / f"{structure.stem}-cf.pdb"
     shutil.copyfile(supplied, destination)
     _require_features(destination, supplied.name)
@@ -619,6 +692,7 @@ def align(
     features2: Path | None = None,
     extra_args: list[str] | None = None,
     timeout: int = DEFAULT_TIMEOUT,
+    memory_limit_mb: int = DEFAULT_MEMORY_LIMIT_MB,
     keep_scratch: bool = False,
 ) -> AlignResult:
     """Align `structure2` onto `structure1` and collect every artefact in `outdir`.
@@ -628,6 +702,12 @@ def align(
 
     `features1` and `features2` are optional.  Left unset -- the normal case -- the chemical
     feature files are computed from the two structures.
+
+    `memory_limit_mb` caps each step's resident memory via a cgroup (see `_guarded_argv`); 0
+    disables the cap outright. The default is a reasonable ceiling for a shared endpoint, not a
+    promise that every pair fits under it -- a structure with internal symmetry can need several
+    times its atom count would suggest, so callers that hit the cap on a legitimate pair should
+    raise it for that run rather than raise the default for everyone.
     """
     if not GLOSA_BIN.exists():
         raise GlosaError(f"the glosa binary is missing at {GLOSA_BIN}; compile it first")
@@ -641,8 +721,8 @@ def align(
     s2 = normalise_pdb(structure2, outdir / "s2.pdb")
     s2w = normalise_pdb(transfer, outdir / "s2w.pdb") if transfer is not None else None
 
-    cf1 = _feature_file(s1, features1, outdir, timeout, structure1.name)
-    cf2 = _feature_file(s2, features2, outdir, timeout, structure2.name)
+    cf1 = _feature_file(s1, features1, outdir, timeout, memory_limit_mb, structure1.name)
+    cf2 = _feature_file(s2, features2, outdir, timeout, memory_limit_mb, structure2.name)
 
     cmd = [GLOSA_BIN, "-s1", s1.name, "-s1cf", cf1.name, "-s2", s2.name, "-s2cf", cf2.name]
     if s2w is not None:
@@ -650,7 +730,7 @@ def align(
     cmd += extra_args or []
 
     try:
-        proc = _run(cmd, outdir, timeout, pid_file=outdir / PID_FILE)
+        proc = _run(cmd, outdir, timeout, memory_limit_mb, pid_file=outdir / PID_FILE)
     except GlosaError as exc:
         # Salvage before the `finally` below removes the checkpoint this reads.
         exc.partial = salvage_checkpoint(outdir)

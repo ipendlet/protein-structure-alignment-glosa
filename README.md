@@ -1,9 +1,23 @@
 # G-LoSA alignment service
 
-Local structure alignment with [G-LoSA v2.2](https://compbio.lehigh.edu/GLoSA/), wrapped so that
-two PDB files are the only thing anyone has to supply. Give it a reference and a mobile
-structure and it returns the GA-score, the transformation matrix and a single overlay file with
-both bodies in it — as a web service, as a command-line tool, or as a Python call.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![G-LoSA](https://img.shields.io/badge/G--LoSA-v2.2-informational)](https://compbio.lehigh.edu/GLoSA/)
+
+**Local protein structure alignment and binding-site similarity scoring**, built on
+[G-LoSA v2.2](https://compbio.lehigh.edu/GLoSA/) (Lee & Im), wrapped so that two PDB files are the
+only thing anyone has to supply. Give it a reference and a mobile structure and it returns the
+GA-score, the transformation matrix and a single overlay file with both bodies in it — as a web
+service, as a command-line tool, or as a Python call.
+
+Useful anywhere a structural-bioinformatics pipeline needs a similarity score between two local
+structures — binding-site and pocket comparison, ligand-environment screening, sanity-checking
+docking poses, drug-design triage — without hand-driving G-LoSA's three separate upstream
+programs and shuttling intermediate files between them.
+
+- [Build](#build)
+- [Run](#run) — [CLI](#from-the-command-line), [Python](#from-python), [web service](#as-a-web-service-locally)
+- [Deploy](#deploy)
+- [Licence and attribution](#licence-and-attribution)
 
 ```
 src/                 G-LoSA sources: the C++ scorer and the two Java feature tools
@@ -245,3 +259,22 @@ If you use this, cite the G-LoSA papers:
 >
 > Lee HS, Im W. *G-LoSA for prediction of protein-ligand binding sites and structures.* Methods
 > in Molecular Biology 1611:97–108 (2017).
+
+---
+
+### For maintainers: repository topics
+
+GitHub topics aren't set from a file in the repo, so they drift out of sync with what's actually
+here unless someone sets them by hand. Current suggestion, via **Settings → General → Topics** (or
+`gh repo edit --add-topic <topic>` once per topic):
+
+```
+protein-structure-alignment  structural-bioinformatics  bioinformatics  drug-discovery
+binding-site-comparison  pdb  molecular-structure  flask  docker  python  cpp  java
+```
+
+And a repository description (**Settings → General → Description**) a bit more specific than the
+README's own title line:
+
+> Local protein structure and binding-site alignment on G-LoSA v2.2 — CLI, Python API, and web
+> service, from two PDB files.
